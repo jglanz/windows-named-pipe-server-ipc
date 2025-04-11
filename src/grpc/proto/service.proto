@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package namedpipe;
+
+service NamedPipeService {
+  rpc StreamData (stream Request) returns (stream Response) {}
+}
+
+message Request {
+  string message = 1;
+}
+
+message Response {
+  string message = 1;
+  uint32 counter = 2;
+}

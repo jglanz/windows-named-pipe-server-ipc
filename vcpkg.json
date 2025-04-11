@@ -1,0 +1,45 @@
+{
+  "name": "node-ipc-native-interop",
+  "version": "0.0.1",
+  "builtin-baseline": "856505bb767458c99d8e3c3ed441f59a058d3687",
+  "dependencies": [
+    {
+      "name": "nlohmann-json",
+      "version>=": "3.11.3"
+    },
+    {
+      "name": "spdlog",
+      "version>=": "1.13.0#1"
+    },
+    {
+      "name": "cppwinrt",
+      "version>=": "2.0.240111.5"
+    },
+    {
+      "name": "magic-enum",
+      "version>=": "0.9.6"
+    },
+    {
+      "name": "boost",
+      "version>=": "1.83.0"
+    },
+    {
+      "name": "protobuf",
+      "version>=": "5.29.3"
+    },
+    {
+      "name": "grpc",
+      "version>=": "1.71.0",
+      "features": [
+        "codegen"
+      ]
+    }
+  ],
+  "overrides": [
+    {
+      "name": "upb",
+      "version": "4.25.1",
+      "port-version": 1
+    }
+  ]
+}
