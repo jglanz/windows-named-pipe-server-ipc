@@ -6,17 +6,53 @@
 
 namespace IPC {
 
-  bool Message::hasError() {
-    return error_.has_value();
+
+
+  Message::Message(const std::uint32_t& connectionId): connectionId_(connectionId) {
   }
 
-  bool Message::isHeaderAvailable() {
-    return header_.size > 0 && header_.id > 0;
+  std::uint32_t Message::connectionId() const {
+    return connectionId_;
+  }
+  bool Message::hasError() {
+    return error_.has_value();
   }
 
   Message* Message::setError(const std::string& msg) {
     error_ = std::make_optional<std::runtime_error>(msg);
     return this;
+  }
+
+  bool Message::isHeaderProcessed() {
+    if (headerProcessed_ && (header_.size <= 0 || header_.id <= 0)) {
+      headerProcessed_ = false;
+    }
+    return headerProcessed_;
+  }
+
+  std::expected<bool, std::exception> Message::onRead(std::size_t bytesRead) {
+    // TODO: Move the `readMessage_.position` by `bytesRead`
+
+    return true;
+  }
+
+  std::expected<bool, std::exception> Message::onWrite(std::size_t bytesWritten) {
+    return true;
+  }
+
+  std::expected<bool,std::exception> Message::processHeader() {
+    if (header_.size <= 0 || header_.id <= 0) {
+      reset();
+      return false;
+    }
+
+    headerProcessed_ = true;
+    packetCount_ = header_.size / packetSize();
+    if (packetCount_ * packetSize() < header_.size) {
+      packetCount_ + 1;
+    }
+
+    return true;
   }
 
   MessageHeader* Message::resetHeader() {
@@ -25,16 +61,11 @@ namespace IPC {
     header_.size = 0;
     return &header_;
   }
-
-  Message::Message(const std::uint32_t& connectionId): connectionId_(connectionId) {
-  }
-
-  std::uint32_t Message::connectionId() const {
-    return connectionId_;
-  }
-
   std::size_t Message::packetSize() const {
     return packetSize_;
+  }
+  std::size_t Message::packetIndex() {
+    return packetIndex_;
   }
 
   std::optional<std::exception> Message::error() const {
@@ -58,7 +89,8 @@ namespace IPC {
   Message* Message::reset() {
     error_ = std::nullopt;
     resetHeader();
-
+    headerProcessed_ = false;
+    packetCount_ = 0;
     packetIndex_ = 0;
     buffer_.reset();
     return this;
@@ -217,13 +249,20 @@ namespace IPC {
       readMessage_ = std::make_shared<Message>(id());
     }
     DWORD bytesReadCount{0};
-    auto success = ::ReadFile(
+    auto success = readMessage_->isHeaderProcessed() ?
+    ::ReadFile(
       pipeHandle_,
       readMessage_->data(),
       readMessage_->packetSize(),
       &bytesReadCount,
       &io.overlapped
-    );
+      ) : ::ReadFile(
+        pipeHandle_,
+        readMessage_->header(),
+        sizeof(MessageHeader),
+        &bytesReadCount,
+        &io.overlapped
+      );
     auto readRes = GetLastError();
     auto readResName = GetLastErrorAsString(readRes);
     if (success) {
@@ -335,7 +374,7 @@ namespace IPC {
         break;
       }
       // Create a new pipe instance for each client
-      if (hasAvailableConnection()) {
+      if (!hasAvailableConnection()) {
         auto res = createNewConnection();
         if (!res) {
           spdlog::error("createNewConnection Failed: {}", res.error().what());
@@ -395,6 +434,8 @@ namespace IPC {
       auto io = std::get<1>(pendingEvent);
       auto role = io->role;
       auto overlappedPtr = &io->overlapped;
+      ResetEvent(overlappedPtr->hEvent);
+
       DWORD byteCount{0};
       auto success = GetOverlappedResult(connection->pipeHandle(), overlappedPtr, &byteCount, FALSE);
       spdlog::info("GetOverlappedResult(success={},byteCount={})", success, byteCount);

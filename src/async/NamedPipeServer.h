@@ -66,7 +66,9 @@ namespace IPC {
     MessageHeader header_{};
     std::optional<std::exception> error_{std::nullopt};
 
+    std::atomic_bool headerProcessed_{false};
     std::size_t packetIndex_{0};
+    std::size_t packetCount_{0};
 
     DynamicByteBuffer buffer_{};
 
@@ -77,7 +79,7 @@ namespace IPC {
 
     protected:
 
-      MessageHeader* resetHeader();;
+      MessageHeader* resetHeader();
 
     public:
 
@@ -89,9 +91,16 @@ namespace IPC {
 
       std::size_t packetSize() const;
 
+      std::size_t packetIndex();
+
       bool hasError();
 
-      bool isHeaderAvailable();
+      bool isHeaderProcessed();
+
+      std::expected<bool,std::exception> onRead(std::size_t bytesRead);
+      std::expected<bool,std::exception> onWrite(std::size_t bytesWritten);
+
+      std::expected<bool,std::exception> processHeader();
 
       Message* setError(const std::string& msg);
 

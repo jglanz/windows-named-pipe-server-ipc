@@ -4,7 +4,7 @@
 
 namespace IPC {
   std::string CreateNamedPipePath(const std::string& pipeName) {
-    return std::format("\\\\.\\pipe\\{}", pipeName);
+    return std::format(R"(\\.\pipe\{})", pipeName);
   };
 
   std::uint32_t NextNamedPipeConnectionId() {
