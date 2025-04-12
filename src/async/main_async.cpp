@@ -32,8 +32,15 @@ int main(int argc, char* argv[]) {
 
   std::signal(SIGINT, handleSignal);
 
-  IPC::NamedPipeServer server([&] (auto size, auto data, IPC::NamedPipeConnection* connection, IPC::NamedPipeServer* serverPtr) {
-    std::println(std::cout, "onMessage(size={},connectionId={})", size, connection->id());
+  IPC::NamedPipeServer server([&] (std::size_t size, const BYTE * data, auto header, IPC::NamedPipeConnection* connection, IPC::NamedPipeServer* serverPtr) {
+    std::string payload(reinterpret_cast<const char*>(data), size);
+    spdlog::info("onMessage(clientId={},messageId={},messageSourceId={},connectionId={}): {}",
+      header->clientId,
+      header->id,
+      header->sourceId,
+      connection->id(),
+      payload);
+
   });
 
   server.start(true);

@@ -5,4 +5,5 @@
 
 namespace IPC {
   std::string GetLastErrorAsString(DWORD err = GetLastError());
+  HANDLE CreateManualResetEvent();
 }

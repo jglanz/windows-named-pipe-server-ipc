@@ -23,4 +23,8 @@ namespace IPC {
     LocalFree(lpMsgBuf);
     return message;
   }
+
+  HANDLE CreateManualResetEvent() {
+    return ::CreateEvent(nullptr, TRUE, FALSE, nullptr);
+  }
 }

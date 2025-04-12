@@ -7,19 +7,18 @@
 #include <deque>
 #include <expected>
 #include <functional>
-#include <iostream>
 #include <windows.h>
 
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <thread>
-#include <type_traits>
 #include <spdlog/spdlog.h>
 #include <magic_enum/magic_enum.hpp>
 #include "Buffer.h"
 #include "NamedPipeHelpers.h"
-#include "Win32Helpers.h"
+#include "ObjectPool.h"
+
 
 #ifndef NAMED_PIPE_SERVER_PIPE_NAME_DEFAULT
 #define NAMED_PIPE_SERVER_PIPE_NAME_DEFAULT "server_pipe"
@@ -30,15 +29,13 @@
 #endif
 
 #ifndef NAMED_PIPE_SERVER_BUFFER_SIZE_DEFAULT
-#define NAMED_PIPE_SERVER_BUFFER_SIZE_DEFAULT 1024
+#define NAMED_PIPE_SERVER_BUFFER_SIZE_DEFAULT 8192
 #endif
 
 namespace IPC {
 
   /**
-   * @brief Message header that contains message info
-   *
-   * @tparam MessageType enumeration of a message type
+   * @brief Represents the header structure of a message, which contains metadata such as identifiers and size.
    */
 
   struct MessageHeader {
@@ -53,29 +50,35 @@ namespace IPC {
      */
     std::uint32_t sourceId{0};
 
+
+    /**
+     * @brief Represents the unique identifier for a client, used to track and manage client-specific operations.
+     */
+    std::uint32_t clientId{0};
+
     /**
      * @brief Data size of this message (excluding header size)
      */
-    std::size_t size{};
+    std::uint32_t size{};
 
   };
 
-
+  constexpr auto MessageHeaderSize = sizeof(MessageHeader);
+  using MessageDataPacket = std::pair<DynamicByteBuffer::ValueType*, std::size_t>;
   class Message {
 
     MessageHeader header_{};
     std::optional<std::exception> error_{std::nullopt};
 
     std::atomic_bool headerProcessed_{false};
-    std::size_t packetIndex_{0};
-    std::size_t packetCount_{0};
-
+    std::atomic_bool allDataRead_{false};
+    std::atomic_bool allDataWritten_{false};
     DynamicByteBuffer buffer_{};
 
     DynamicByteBuffer::SizeType availableSize_{0};
 
     const std::uint32_t connectionId_;
-    const std::size_t packetSize_{NAMED_PIPE_SERVER_BUFFER_SIZE_DEFAULT};
+    const std::size_t packetSize_;
 
     protected:
 
@@ -85,17 +88,19 @@ namespace IPC {
 
       Message() = delete;
 
-      explicit Message(const std::uint32_t& connectionId);
-
+      explicit Message(const std::uint32_t& connectionId, std::size_t packetSize);
+      std::uint32_t id();
+      std::uint32_t sourceId();
       std::uint32_t connectionId() const;
 
       std::size_t packetSize() const;
 
-      std::size_t packetIndex();
+      std::size_t size();
 
       bool hasError();
 
       bool isHeaderProcessed();
+      bool allDataRead();
 
       std::expected<bool,std::exception> onRead(std::size_t bytesRead);
       std::expected<bool,std::exception> onWrite(std::size_t bytesWritten);
@@ -114,14 +119,16 @@ namespace IPC {
 
       Message* reset();
 
-      DynamicByteBuffer::ValueType* getPacketData(std::size_t packetIndex);
+      MessageDataPacket getNextReadPacket();
+
+      MessageDataPacket getNextWritePacket();
 
       /**
        * @brief Get a pointer to the underlying data
        *
        * @return Data pointer, which is sized to match the header if needed
        */
-      DynamicByteBuffer::ValueType* data(std::optional<std::size_t> overrideSize = std::nullopt);
+      DynamicByteBuffer::ValueType* data();
 
       const DynamicByteBuffer::ValueType* data() const;
   };
@@ -147,8 +154,17 @@ namespace IPC {
   };
 
   class NamedPipeConnection;
+  class NamedPipeServer;
 
   using NamedPipePendingEvent = std::tuple<NamedPipeConnection*, NamedPipeIO*>;
+
+  struct MessageFactory {
+    NamedPipeServer* server;
+    std::uint32_t connectionId;
+    MessageFactory(NamedPipeServer * server, std::uint32_t connectionId);
+
+    Message * operator()();
+  };
 
   class NamedPipeConnection {
     public:
@@ -158,9 +174,12 @@ namespace IPC {
       };
 
     private:
-
+      NamedPipeServer * server_;
       const std::uint32_t id_{NextNamedPipeConnectionId()};
+      const std::size_t packetSize_;
       HANDLE pipeHandle_;
+      MessageFactory messageFactory_;
+      ObjectPool<Message> messagePool_;
 
       std::atomic_bool connected_{false};
 
@@ -171,7 +190,6 @@ namespace IPC {
       std::deque<MessagePtr> writeMessageQueue_{};
       MessagePtr writeMessage_{nullptr};
 
-      std::deque<MessagePtr> readMessageQueue_{};
       MessagePtr readMessage_{nullptr};
 
     public:
@@ -180,13 +198,13 @@ namespace IPC {
 
       NamedPipeConnection() = delete;
 
-      explicit NamedPipeConnection(HANDLE pipeHandle);
+      explicit NamedPipeConnection(NamedPipeServer * server, HANDLE pipeHandle, std::size_t packetSize);
 
 
       virtual ~NamedPipeConnection();
 
       void destroy();
-
+      std::size_t packetSize() const;
       std::vector<NamedPipePendingEvent> pendingEvents();
       std::vector<NamedPipeIO*> allIO();
       std::uint32_t id() const;
@@ -202,23 +220,41 @@ namespace IPC {
       bool isConnected();
 
       bool isReadPending();
+
+      /**
+       * TODO: implement write message
+       * @param id
+       * @param sourceId
+       * @param data
+       * @param size
+       * @return
+       */
+      std::expected<bool,std::exception> writeMessage(
+        std::uint32_t id,
+        std::uint32_t sourceId,
+        const DynamicByteBuffer::ValueType* data,
+        std::uint32_t size
+        );
+
       std::expected<bool,std::exception> startRead();
+      std::expected<bool,std::exception> startWrite();
 
       bool setConnected(bool connected);
 
       LPOVERLAPPED readOverlapped();
 
       LPOVERLAPPED writeOverlapped();
-
+    protected:
+      friend class NamedPipeServer;
+      std::expected<bool,std::exception> onRead(std::size_t bytesRead);
+      std::expected<bool,std::exception> onWrite(std::size_t bytesWritten);
 
   };
 
-
-  class NamedPipeServer;
-
   using MessageHandler = std::function<void(
     std::size_t size,
-    DynamicByteBuffer::ValueType* data,
+    const DynamicByteBuffer::ValueType* data,
+    const MessageHeader* header,
     NamedPipeConnection* connection,
     NamedPipeServer* server
   )>;
@@ -226,7 +262,7 @@ namespace IPC {
   struct NamedPipeServerOptions {
 
     /**
-     * @brief Pipe name to use (excludes \\\\.pipe\\)
+     * @brief Pipe name to use (excludes \\\\.\\pipe\\)
      */
     std::string pipeName{NAMED_PIPE_SERVER_PIPE_NAME_DEFAULT};
 
@@ -237,17 +273,30 @@ namespace IPC {
      */
     std::size_t maxConnections{NAMED_PIPE_SERVER_MAX_CONNECTIONS_DEFAULT};
 
+    /**
+     * Size of an individual packet (1..n packets make a message)
+     */
+    std::size_t packetSize{NAMED_PIPE_SERVER_BUFFER_SIZE_DEFAULT};
+
     explicit NamedPipeServerOptions(const std::optional<NamedPipeServerOptions>& overrideOptions = std::nullopt);
   };
 
 
   class NamedPipeServer {
-
+    HANDLE stopEventHandle_;
     std::mutex mutex_{};
     std::mutex connectionMutex_{};
-    std::unique_ptr<std::thread> eventThread_{nullptr};
+    std::mutex emitMutex_{};
+    std::condition_variable emitCondition_{};
+    std::condition_variable stoppedCondition_{};
+    std::deque<MessagePtr> emitMessageQueue_{};
+    std::unique_ptr<std::thread> emitThread_{nullptr};
+
+    std::unique_ptr<std::thread> ioThread_{nullptr};
+
     std::atomic_bool running_{false};
     std::vector<std::shared_ptr<NamedPipeConnection>> connections_{};
+
     MessageHandler messageHandler_;
 
     const NamedPipeServerOptions options_;
@@ -279,7 +328,19 @@ namespace IPC {
        */
       virtual ~NamedPipeServer();
 
+      std::size_t packetSize() const;
+
       bool hasAvailableConnection();
+
+      bool shouldCreateConnection();
+
+      std::expected<bool,std::exception> writeMessage(
+        std::uint32_t connectionId,
+        std::uint32_t id,
+        std::uint32_t sourceId,
+        const DynamicByteBuffer::ValueType* data,
+        std::uint32_t size
+        );
 
       /**
        * @inherit
@@ -297,9 +358,21 @@ namespace IPC {
        */
       void stop();
 
-    private:
+      void waitUntilStopped();
 
-      void runnable();
+      std::shared_ptr<NamedPipeConnection> getConnection(std::uint32_t connectionId);
+
+    protected:
+      friend class NamedPipeConnection;
+
+      void emitMessage(const std::shared_ptr<Message>& message);
+
+    private:
+      void ioRunnable();
+      void emitRunnable();
+      std::optional<MessagePtr> nextEmitMessage();
+
+
 
       std::expected<std::shared_ptr<NamedPipeConnection>, std::exception> createNewConnection();
   };

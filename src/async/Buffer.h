@@ -50,9 +50,9 @@ namespace IPC {
       virtual ~Buffer() = default;
 
       /**
-       * \brief Access the underlying memory/data pointer
+       * @brief Access the underlying memory/data pointer
        *
-       * \return Underlying data pointer
+       * @return Underlying data pointer
        */
       virtual ValueType* data() {
         return getStorage().data();
@@ -63,25 +63,25 @@ namespace IPC {
       }
 
       /**
-       * \brief
-       * \return size of the buffer
+       * @brief
+       * @return size of the buffer
        */
       virtual SizeType size() {
         return getStorage().size();
       }
 
       // /**
-      //  * \brief Clone the buffer
+      //  * @brief Clone the buffer
       //  *
-      //  * \return cloned buffer
+      //  * @return cloned buffer
       //  */
       // virtual Buffer<Storage> clone() = 0;
 
       /**
-       * \brief Resize the target buffer
+       * @brief Resize the target buffer
        *
-       * \param newSize target size of buffer
-       * \return pair<newSize,oldSize>
+       * @param newSize target size of buffer
+       * @return pair<newSize,oldSize>
        */
       virtual bool resize(SizeType newSize) {
         return false;
@@ -96,7 +96,7 @@ namespace IPC {
       }
 
       virtual SizeType availableToRead() {
-        return std::min<SizeType>(static_cast<SizeType>(position_.write) - static_cast<SizeType>(position_.read), 0);
+        return std::max<SizeType>(static_cast<SizeType>(position_.write) - static_cast<SizeType>(position_.read), 0);
       }
 
       virtual void setWritePosition(SizeType newWritePosition = 0) {
@@ -113,8 +113,16 @@ namespace IPC {
         return std::min<SizeType>(size(), position_.write);
       }
 
+      virtual ValueType* writeData() {
+        return data() + writePosition();
+      }
+
       virtual SizeType readPosition() {
         return std::min<SizeType>(writePosition(), position_.read);
+      }
+
+      virtual ValueType* readData() {
+        return data() + readPosition();
       }
 
       virtual SizeType write(ValueType* src, SizeType len) {
@@ -150,10 +158,10 @@ namespace IPC {
   };
 
   /**
-   * \brief A fixed size buffer
+   * @brief A fixed size buffer
    *
-   * \tparam N Size of the buffer
-   * \tparam T Data type of the buffer, defaults to `BYTE`
+   * @tparam N Size of the buffer
+   * @tparam T Data type of the buffer, defaults to `BYTE`
    */
   template <std::size_t N, typename T = BYTE>
   class FixedBuffer : public Buffer<std::array<T, N>> {

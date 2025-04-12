@@ -24,6 +24,21 @@ const PIPE_PATH = "\\\\.\\pipe\\" + PIPE_NAME
 
 const L = console.log
 
+class MessageHeader {
+  static MessageIdCounter = 0;
+  id = 0
+  sourceId = 0
+  size = 0
+  
+  constructor(id = ++MessageHeader.MessageIdCounter, sourceId = 0, size = 0) {
+    Object.assign(this, {
+      id, sourceId, size
+    })
+  }
+}
+
+const MessageHeaderLength = 4 + 4 + 4;
+
 const client = net.connect(PIPE_PATH, function() {
   L("Client: on connection, starting to send messages")
   sendMessages()
@@ -45,8 +60,9 @@ async function sendMessages() {
   await new Promise(resolve => setTimeout(resolve, 100))
   
   for (let i = 0; i < 2;i++) {
+    
     const data = `Message #${i}`,
-      msgLen = 4 + data.length,
+      msgLen = MessageHeaderLength + data.length,
       msgBuf = Buffer.alloc(msgLen),
       msgView = new DataView(msgBuf.buffer)
     
